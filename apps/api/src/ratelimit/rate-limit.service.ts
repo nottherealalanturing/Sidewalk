@@ -61,6 +61,8 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     this.pool = new Pool({
       connectionString: url.toString(),
       max: POOL_SIZE,
+      // DIAGNOSTIC ONLY: says which pool (by its timeout) a database session belongs to.
+      application_name: `ratelimit-${limit}`,
       connectionTimeoutMillis: limit,
       idleTimeoutMillis: 30_000,
       // Seen by the server, so a statement is cancelled there, not merely abandoned here.

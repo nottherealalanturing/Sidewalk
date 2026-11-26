@@ -304,6 +304,26 @@ describe("Shared rate limiting", () => {
             SELECT count(*) AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query ILIKE '%RateLimitBucket%'`;
           return Number(rows[0]?.n ?? 0);
         };
+        // DIAGNOSTIC ONLY: record every waiting session over time.
+        const snapshot = () =>
+          first.prisma.$queryRawUnsafe<unknown[]>(`
+            SELECT pid, datname, application_name AS app, backend_type AS type, wait_event AS we, state,
+                   round(extract(epoch FROM clock_timestamp() - query_start) * 1000)::int AS query_ms,
+                   round(extract(epoch FROM clock_timestamp() - xact_start) * 1000)::int AS xact_ms,
+                   round(extract(epoch FROM clock_timestamp() - backend_start) * 1000)::int AS conn_ms,
+                   pg_blocking_pids(pid)::text AS blocked_by, left(query, 100) AS q
+            FROM pg_stat_activity
+            WHERE wait_event_type = 'Lock' AND query ILIKE '%RateLimitBucket%' ORDER BY pid`);
+        const diagStart = Date.now();
+        process.stdout.write(
+          `DIAG locker=${(await locker.query("SELECT pg_backend_pid() p")).rows[0].p} burst_ms=${diagStart - began}\n`
+        );
+        for (let i = 0; i < 25; i++) {
+          process.stdout.write(
+            `DIAG +${Date.now() - diagStart}ms ${JSON.stringify(await snapshot())}\n`
+          );
+          await sleep(100);
+        }
         // A request still queued for a connection can start its statement just as it gives up, so the last statements
         // may briefly outlive the responses. The server must still end them itself, long before the lock is released.
         const deadline = Date.now() + 2000;
